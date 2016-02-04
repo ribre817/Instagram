@@ -9,18 +9,36 @@
 import UIKit
 import AFNetworking
 
-class PhotosViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+class PhotosViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate {
     
     var photos: [NSDictionary]?
     
     @IBOutlet weak var photoTableView: UITableView!
     
+    var isMoreDataLoading = false
+    var loadingMoreView:InfiniteScrollActivityView?
+    
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        let refreshControl = UIRefreshControl()
+        refreshControl.addTarget(self, action: "refreshControlAction:", forControlEvents: UIControlEvents.ValueChanged)
+        photoTableView.insertSubview(refreshControl, atIndex: 0)
         
         photoTableView.delegate = self
         photoTableView.dataSource = self
         photoTableView.rowHeight = 320
+        
+        
+        // Set up Infinite Scroll loading indicator
+        let frame = CGRectMake(0, photoTableView.contentSize.height, photoTableView.bounds.size.width, InfiniteScrollActivityView.defaultHeight)
+        loadingMoreView = InfiniteScrollActivityView(frame: frame)
+        loadingMoreView!.hidden = true
+        photoTableView.addSubview(loadingMoreView!)
+        
+        var insets = photoTableView.contentInset;
+        insets.bottom += InfiniteScrollActivityView.defaultHeight;
+        photoTableView.contentInset = insets
         
         let clientId = "e05c462ebd86446ea48a5af73769b602"
         let url = NSURL(string:"https://api.instagram.com/v1/media/popular?client_id=\(clientId)")
@@ -54,6 +72,85 @@ class PhotosViewController: UIViewController, UITableViewDataSource, UITableView
         // Dispose of any resources that can be recreated.
     }
     
+    func scrollViewDidScroll(scrollView: UIScrollView) {
+        if(!isMoreDataLoading){
+            let scrollViewContentHeight = photoTableView.contentSize.height
+            let scrollOffsetThreshold = scrollViewContentHeight - photoTableView.bounds.size.height
+        
+            if(scrollView.contentOffset.y > scrollOffsetThreshold && photoTableView.dragging) {
+                isMoreDataLoading = true
+                
+                // Update position of loadingMoreView, and start loading indicator
+                let frame = CGRectMake(0, photoTableView.contentSize.height, photoTableView.bounds.size.width, InfiniteScrollActivityView.defaultHeight)
+                loadingMoreView?.frame = frame
+                loadingMoreView!.startAnimating()
+                
+                loadMoreData()
+            }
+        }
+    }
+    
+    func loadMoreData() {
+        
+        // Complete request (myRequest)...
+        let clientId = "e05c462ebd86446ea48a5af73769b602"
+        let url = NSURL(string:"https://api.instagram.com/v1/media/popular?client_id=\(clientId)")
+        let myRequest = NSURLRequest(URL: url!)
+        
+        // Configure session so that completion handler is executed on main UI thread
+        let session = NSURLSession(
+            configuration: NSURLSessionConfiguration.defaultSessionConfiguration(),
+            delegate:nil,
+            delegateQueue:NSOperationQueue.mainQueue()
+        )
+        
+        let task : NSURLSessionDataTask = session.dataTaskWithRequest(myRequest,
+            completionHandler: { (dataOrNil, response, error) in
+                if let data = dataOrNil {
+                    if let responseDictionary = try! NSJSONSerialization.JSONObjectWithData(
+                        data, options:[]) as? NSDictionary {
+                            NSLog("response: \(responseDictionary)")
+                            self.isMoreDataLoading = false
+                            self.loadingMoreView!.stopAnimating()
+                            self.photos = responseDictionary["data"] as! [NSDictionary]
+                            self.photoTableView.reloadData()
+                            
+                    }
+                }
+        });
+        task.resume()
+    }
+    
+    func refreshControlAction(refreshControl: UIRefreshControl) {
+        
+        // ... Create the NSURLRequest (myRequest) ...
+        let clientId = "e05c462ebd86446ea48a5af73769b602"
+        let url = NSURL(string:"https://api.instagram.com/v1/media/popular?client_id=\(clientId)")
+        let myRequest = NSURLRequest(URL: url!)
+        
+        // Configure session so that completion handler is executed on main UI thread
+        let session = NSURLSession(
+            configuration: NSURLSessionConfiguration.defaultSessionConfiguration(),
+            delegate:nil,
+            delegateQueue:NSOperationQueue.mainQueue()
+        )
+        
+        let task : NSURLSessionDataTask = session.dataTaskWithRequest(myRequest,
+            completionHandler: { (dataOrNil, response, error) in
+                if let data = dataOrNil {
+                    if let responseDictionary = try! NSJSONSerialization.JSONObjectWithData(
+                        data, options:[]) as? NSDictionary {
+                            NSLog("response: \(responseDictionary)")
+                            self.photos = responseDictionary["data"] as! [NSDictionary]
+                            self.photoTableView.reloadData()
+                            // Tell the refreshControl to stop spinning
+                            refreshControl.endRefreshing()
+                    }
+                }
+        });
+        task.resume()
+    }
+    
     func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int{
         if let photos = photos {
             return photos.count
@@ -74,19 +171,20 @@ class PhotosViewController: UIViewController, UITableViewDataSource, UITableView
         return cell
 
     }
-
     
-    
-    
-
-    /*
-    // MARK: - Navigation
-
-    // In a storyboard-based application, you will often want to do a little preparation before navigation
-    override func prepareForSegue(segue: UIStoryboardSegue, sender: AnyObject?) {
-        // Get the new view controller using segue.destinationViewController.
-        // Pass the selected object to the new view controller.
+    func tableView(tableView: UITableView, didSelectRowAtIndexPath indexPath: NSIndexPath){
+        tableView.deselectRowAtIndexPath(indexPath, animated:true)
     }
-    */
+
+    override func prepareForSegue(segue: UIStoryboardSegue, sender: AnyObject?) {
+        var vc = segue.destinationViewController as! PhotoDetailsViewController
+        var indexPath = photoTableView.indexPathForCell(sender as! UITableViewCell)
+        let photo = photos![indexPath!.row]
+        
+        let detailViewController = segue.destinationViewController as! PhotoDetailsViewController
+        detailViewController.photo = photo
+        
+    }
+    
 
 }
